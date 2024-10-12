@@ -1,6 +1,7 @@
 package com.example.icm.taller2
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
@@ -36,6 +37,8 @@ class CameraActivity : AppCompatActivity() {
         const val REQUEST_PERMISSIONS_CODE = 100
     }
 
+    private var isCameraRequest: Boolean = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -45,24 +48,18 @@ class CameraActivity : AppCompatActivity() {
         galleryButtton = findViewById(R.id.btn_gallery)
         cameraButton = findViewById(R.id.btn_camera)
 
-
-        // Verificar y solicitar permisos
-        if (!checkPermissions()) {
-            requestPermissions()
-        }
-
-        // Configurar botón para tomar una foto
         cameraButton.setOnClickListener {
-            if (checkPermissions()) {
+            isCameraRequest = true
+            if (checkPermissions(isCameraRequest)) {
                 dispatchTakePictureIntent()
             } else {
                 requestPermissions()
             }
         }
 
-        // Configurar botón para seleccionar una imagen desde la galería
         galleryButtton.setOnClickListener {
-            if (checkPermissions()) {
+            isCameraRequest = false
+            if (checkPermissions(isCameraRequest)) {
                 selectImageFromGallery()
             } else {
                 requestPermissions()
@@ -70,30 +67,39 @@ class CameraActivity : AppCompatActivity() {
         }
     }
 
-    private fun checkPermissions(): Boolean {
+    private fun checkPermissions(isCameraRequest: Boolean): Boolean {
         val cameraPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-        val storagePermission = ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
-        return cameraPermission == PackageManager.PERMISSION_GRANTED &&
-                storagePermission == PackageManager.PERMISSION_GRANTED
+        val writeStoragePermission = ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        val readStoragePermission = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
+
+        return if (isCameraRequest) {
+            cameraPermission == PackageManager.PERMISSION_GRANTED && writeStoragePermission == PackageManager.PERMISSION_GRANTED
+        } else {
+            readStoragePermission == PackageManager.PERMISSION_GRANTED
+        }
     }
+
+
 
     private fun requestPermissions() {
         ActivityCompat.requestPermissions(
             this,
-            arrayOf(Manifest.permission.CAMERA, Manifest.permission.WRITE_EXTERNAL_STORAGE),
+            arrayOf(Manifest.permission.CAMERA, Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE),
             REQUEST_PERMISSIONS_CODE
         )
     }
 
     override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
+        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_PERMISSIONS_CODE) {
             if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                dispatchTakePictureIntent()
+                if (isCameraRequest) {
+                    dispatchTakePictureIntent()
+                } else {
+                    selectImageFromGallery()
+                }
             } else {
                 Toast.makeText(this, "Requiere conceder permisos", Toast.LENGTH_SHORT).show()
             }
@@ -113,6 +119,7 @@ class CameraActivity : AppCompatActivity() {
         }
     }
 
+    @SuppressLint("QueryPermissionsNeeded")
     private fun dispatchTakePictureIntent() {
         Intent(MediaStore.ACTION_IMAGE_CAPTURE).also { takePictureIntent ->
             takePictureIntent.resolveActivity(packageManager)?.also {
@@ -124,7 +131,7 @@ class CameraActivity : AppCompatActivity() {
                 photoFile?.also {
                     val photoURI: Uri = FileProvider.getUriForFile(
                         this,
-                        "com.example.android.fileprovider",
+                        "com.example.icm.taller2",
                         it
                     )
                     takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoURI)
@@ -138,9 +145,16 @@ class CameraActivity : AppCompatActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQUEST_IMAGE_CAPTURE && resultCode == RESULT_OK) {
             setPic()
+        } else if (requestCode == REQUEST_IMAGE_GALLERY && resultCode == RESULT_OK) {
+            val imageUri: Uri? = data?.data
+            imageUri?.let {
+                imageView.setImageURI(it)
+            }
         }
     }
 
+
+    //Ajustar dimensiones foto
     private fun setPic() {
         val targetW: Int = imageView.width
         val targetH: Int = imageView.height
