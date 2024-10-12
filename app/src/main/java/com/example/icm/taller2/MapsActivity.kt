@@ -1,16 +1,26 @@
 package com.example.icm.taller2
 
+import android.Manifest
 import android.content.pm.PackageManager
 import android.location.Location
+import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
-import androidx.activity.enableEdgeToEdge
-import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
-import com.google.android.gms.location.*
+import com.example.icm.taller2.databinding.ActivityMapsBinding
+
+import com.google.android.gms.maps.CameraUpdateFactory
+import com.google.android.gms.maps.GoogleMap
+import com.google.android.gms.maps.OnMapReadyCallback
+import com.google.android.gms.maps.SupportMapFragment
+import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.MarkerOptions
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.Priority
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
 import org.json.JSONArray
 import java.io.BufferedWriter
 import java.io.File
@@ -23,7 +33,7 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-class MapsActivity : AppCompatActivity() {
+class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
 
     companion object {
         const val REQUEST_LOCATION_PERMISSION = 1
@@ -31,6 +41,8 @@ class MapsActivity : AppCompatActivity() {
         const val MIN_DISTANCE_METERS = 30 // Mínimo desplazamiento en metros
     }
 
+    private lateinit var mMap: GoogleMap
+    private lateinit var binding: ActivityMapsBinding
     private lateinit var mFusedLocationClient: FusedLocationProviderClient
     private lateinit var mLocationRequest: LocationRequest
     private lateinit var mLocationCallback: LocationCallback
@@ -39,8 +51,8 @@ class MapsActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-        setContentView(R.layout.activity_maps)
+        binding = ActivityMapsBinding.inflate(layoutInflater)
+        setContentView(binding.root)
 
         mFusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         mLocationRequest = createLocationRequest()
@@ -65,12 +77,39 @@ class MapsActivity : AppCompatActivity() {
         }
 
         startLocationUpdates()
+
+        // Obtain the SupportMapFragment and get notified when the map is ready to be used.
+        val mapFragment = supportFragmentManager
+            .findFragmentById(R.id.map) as SupportMapFragment
+        mapFragment.getMapAsync(this)
+    }
+
+    override fun onMapReady(googleMap: GoogleMap) {
+        mMap = googleMap
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            mFusedLocationClient.requestLocationUpdates(
+                mLocationRequest,
+                mLocationCallback,
+                null
+            )
+        }
+        // Add a marker in Sydney and move the camera
+        val sydney = LatLng(-34.0, 151.0)
+        mMap.addMarker(MarkerOptions().position(sydney).title("Marker in Sydney"))
+        mMap.moveCamera(CameraUpdateFactory.newLatLng(sydney))
     }
 
     private fun createLocationRequest(): LocationRequest {
         var mLocationRequest: LocationRequest = LocationRequest.create()
         mLocationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
-        mLocationRequest.setSmallestDisplacement(MIN_DISTANCE_METERS.toFloat());
+        mLocationRequest.setSmallestDisplacement(MapsActivity.MIN_DISTANCE_METERS.toFloat());
         mLocationRequest.setInterval(60000); // Update location every 1 minute
         return mLocationRequest
     }
@@ -93,7 +132,7 @@ class MapsActivity : AppCompatActivity() {
             ActivityCompat.requestPermissions(
                 this,
                 arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION),
-                REQUEST_LOCATION_PERMISSION
+                MapsActivity.REQUEST_LOCATION_PERMISSION
             )
         }
     }
@@ -106,7 +145,7 @@ class MapsActivity : AppCompatActivity() {
                 + cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2))
                 * sin(lngDistance / 2) * sin(lngDistance / 2))
         val c = 2 * atan2(sqrt(a), sqrt(1 - a))
-        val result = RADIUS_OF_EARTH_KM * c
+        val result = MapsActivity.RADIUS_OF_EARTH_KM * c
         return (result * 100.0).roundToInt() / 100.0
     }
 
