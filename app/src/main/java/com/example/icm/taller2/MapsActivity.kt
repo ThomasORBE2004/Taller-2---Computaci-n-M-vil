@@ -2,10 +2,13 @@ package com.example.icm.taller2
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.location.Geocoder
 import android.location.Location
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.util.Log
+import android.view.inputmethod.EditorInfo
+import android.widget.EditText
 import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import com.example.icm.taller2.databinding.ActivityMapsBinding
@@ -15,6 +18,7 @@ import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.OnMapReadyCallback
 import com.google.android.gms.maps.SupportMapFragment
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.Marker
 import com.google.android.gms.maps.model.MarkerOptions
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
@@ -27,6 +31,7 @@ import java.io.File
 import java.io.FileWriter
 import java.io.Writer
 import java.util.Date
+import java.util.Locale
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -48,6 +53,7 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
     private lateinit var mLocationCallback: LocationCallback
 
     private var lastLocation: Location? = null
+    private var currentMarker: Marker? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -57,6 +63,10 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
         mFusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         mLocationRequest = createLocationRequest()
 
+        mMap.uiSettings.isZoomGesturesEnabled = true
+        mMap.uiSettings.isZoomControlsEnabled = true
+
+        // Detectar cambios en la ubicación
         mLocationCallback = object : LocationCallback() {
             override fun onLocationResult(locationResult: LocationResult) {
                 val location = locationResult.lastLocation
@@ -71,6 +81,7 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
                         lastLocation = location
                         Log.i("LOCATION", "Nueva ubicación detectada: $location")
                         writeJSONObject(location)
+                        updateMarker(location)
                     }
                 }
             }
@@ -78,14 +89,23 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
 
         startLocationUpdates()
 
-        // Obtain the SupportMapFragment and get notified when the map is ready to be used.
+        // Obtener el fragmento del mapa
         val mapFragment = supportFragmentManager
             .findFragmentById(R.id.map) as SupportMapFragment
         mapFragment.getMapAsync(this)
+
+        val editTextAddress = findViewById<EditText>(R.id.texto)
+        editTextAddress.setOnEditorActionListener { _, _, _ ->
+            val address = editTextAddress.text.toString()
+            searchLocationByAddress(address)
+            true
+        }
+
     }
 
     override fun onMapReady(googleMap: GoogleMap) {
         mMap = googleMap
+
         if (ActivityCompat.checkSelfPermission(
                 this,
                 Manifest.permission.ACCESS_FINE_LOCATION
@@ -94,33 +114,85 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
                 Manifest.permission.ACCESS_COARSE_LOCATION
             ) != PackageManager.PERMISSION_GRANTED
         ) {
-            mFusedLocationClient.requestLocationUpdates(
-                mLocationRequest,
-                mLocationCallback,
-                null
-            )
+            mFusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                if (location != null) {
+                    val userLocation = LatLng(location.latitude, location.longitude)
+                    mMap.addMarker(
+                        MarkerOptions().position(userLocation).title("Tu ubicación actual")
+                    )
+                    mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(userLocation, 15f))
+
+                    mFusedLocationClient.requestLocationUpdates(
+                        mLocationRequest,
+                        mLocationCallback,
+                        null
+                    )
+                }
+            }
         }
-        // Add a marker in Sydney and move the camera
-        val sydney = LatLng(-34.0, 151.0)
-        mMap.addMarker(MarkerOptions().position(sydney).title("Marker in Sydney"))
-        mMap.moveCamera(CameraUpdateFactory.newLatLng(sydney))
+        // Manejo del evento LongClick para crear un marcador
+        mMap.setOnMapLongClickListener { latLng ->
+            val geocoder = Geocoder(this, Locale.getDefault())
+            val addresses = geocoder.getFromLocation(latLng.latitude, latLng.longitude, 1)
+            val addressText = addresses?.get(0)?.getAddressLine(0) ?: "Sin dirección"
+
+            mMap.addMarker(MarkerOptions().position(latLng).title(addressText))
+
+            // Mostrar la distancia entre el usuario y el nuevo marcador
+            if (lastLocation != null) {
+                val distanceToMarker = distance(
+                    lastLocation!!.latitude,
+                    lastLocation!!.longitude,
+                    latLng.latitude,
+                    latLng.longitude
+                )
+                Toast.makeText(
+                    this,
+                    "Distancia al marcador: $distanceToMarker metros",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
+    // Función para buscar una dirección usando Geocoder
+    private fun searchLocationByAddress(address: String) {
+        val geocoder = Geocoder(this, Locale.getDefault())
+        val addresses = geocoder.getFromLocationName(address, 1)
+        if (addresses != null) {
+            if (addresses.isNotEmpty()) {
+                val location = addresses[0]
+                val latLng = LatLng(location.latitude, location.longitude)
+                mMap.addMarker(MarkerOptions().position(latLng).title(address))
+                mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(latLng, 15f))
+            } else {
+                Toast.makeText(this, "Dirección no encontrada", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun updateMarker(location: Location) {
+        val latLng = LatLng(location.latitude, location.longitude)
+        currentMarker?.remove() // Quitar marcador anterior
+        currentMarker = mMap.addMarker(MarkerOptions().position(latLng).title("Ubicación actual"))
+        mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(latLng, 15f))
     }
 
     private fun createLocationRequest(): LocationRequest {
         var mLocationRequest: LocationRequest = LocationRequest.create()
-        mLocationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
-        mLocationRequest.setSmallestDisplacement(MapsActivity.MIN_DISTANCE_METERS.toFloat());
-        mLocationRequest.setInterval(60000); // Update location every 1 minute
+        mLocationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY)
+        mLocationRequest.setSmallestDisplacement(MIN_DISTANCE_METERS.toFloat())
+        mLocationRequest.setInterval(60000) // Actualizar ubicación cada minuto
         return mLocationRequest
     }
 
     private fun startLocationUpdates() {
         if (ActivityCompat.checkSelfPermission(
                 this,
-                android.Manifest.permission.ACCESS_FINE_LOCATION
+                Manifest.permission.ACCESS_FINE_LOCATION
             ) == PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
                 this,
-                android.Manifest.permission.ACCESS_COARSE_LOCATION
+                Manifest.permission.ACCESS_COARSE_LOCATION
             ) == PackageManager.PERMISSION_GRANTED
         ) {
             mFusedLocationClient.requestLocationUpdates(
@@ -131,13 +203,13 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
         } else {
             ActivityCompat.requestPermissions(
                 this,
-                arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION),
-                MapsActivity.REQUEST_LOCATION_PERMISSION
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+                REQUEST_LOCATION_PERMISSION
             )
         }
     }
 
-    // Función para calcular distancia entre dos puntos
+    // Calcular distancia entre dos puntos
     fun distance(lat1: Double, long1: Double, lat2: Double, long2: Double): Double {
         val latDistance = Math.toRadians(lat1 - lat2)
         val lngDistance = Math.toRadians(long1 - long2)
@@ -145,7 +217,7 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
                 + cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2))
                 * sin(lngDistance / 2) * sin(lngDistance / 2))
         val c = 2 * atan2(sqrt(a), sqrt(1 - a))
-        val result = MapsActivity.RADIUS_OF_EARTH_KM * c
+        val result = RADIUS_OF_EARTH_KM * c * 1000 // Convertir a metros
         return (result * 100.0).roundToInt() / 100.0
     }
 
@@ -169,7 +241,7 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
             output.write(localizaciones.toString())
             output.close()
 
-            Toast.makeText(applicationContext, "Location saved", Toast.LENGTH_LONG).show()
+            Toast.makeText(applicationContext, "Ubicación guardada", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             Log.e("LOCATION", "Error al guardar la ubicación", e)
         }
@@ -179,7 +251,7 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
     private fun readJSONArrayFromFile(fileName: String): JSONArray {
         val file = File(baseContext.getExternalFilesDir(null), fileName)
         if (!file.exists()) {
-            Log.i("LOCATION", "Ubicacion de archivo: $file no encontrado")
+            Log.i("LOCATION", "Archivo no encontrado: $file")
             return JSONArray()
         }
         val jsonString = file.readText()

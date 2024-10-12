@@ -4,4 +4,5 @@
     <string name="camara">Camera</string>
     <string name="foto">Imagen</string>
     <string name="title_activity_maps2">MapsActivity2</string>
+    <string name="hintAddress">Ingrese una dirección</string>
 </resources>
